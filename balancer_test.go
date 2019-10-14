@@ -1,8 +1,8 @@
 package main
 
 import (
-	"testing"
 	"github.com/stretchr/testify/assert"
+	"testing"
 )
 
 func TestTeamBalancer_DoBalancing(t *testing.T) {
@@ -27,7 +27,7 @@ type TestTuple struct {
 func provideTestData() []TestTuple {
 	return []TestTuple{
 		{
-			Description: "Empty teams insert one player",
+			Description:    "Empty teams insert one player",
 			BaseRoster:     CreateEmptyRoster(1, 0),
 			InsertedPlayer: CreatePlayer(1),
 			Result: TestResult{
@@ -57,14 +57,42 @@ func provideTestData() []TestTuple {
 			}(),
 			InsertedPlayer: CreatePlayer(1),
 			Result: TestResult{
+				Inserted: false,
+				Finished: true,
+			},
+		}, {
+			Description: "One full team, one half empty team, insert fitting player",
+			BaseRoster: func() *MatchRoster {
+				roster := CreateEmptyRoster(2, 1)
+				roster.TeamA.AddPlayer(CreatePlayer(1))
+				roster.TeamA.AddPlayer(CreatePlayer(2))
+				roster.TeamB.AddPlayer(CreatePlayer(1))
+				return roster
+			}(),
+			InsertedPlayer: CreatePlayer(2),
+			Result: TestResult{
 				Inserted: true,
 				Finished: true,
+			},
+		}, {
+			Description: "One full team, one half empty team, insert not fitting player",
+			BaseRoster: func() *MatchRoster {
+				roster := CreateEmptyRoster(2, 1)
+				roster.TeamA.AddPlayer(CreatePlayer(1))
+				roster.TeamA.AddPlayer(CreatePlayer(2))
+				roster.TeamB.AddPlayer(CreatePlayer(1))
+				return roster
+			}(),
+			InsertedPlayer: CreatePlayer(3),
+			Result: TestResult{
+				Inserted: false,
+				Finished: false,
 			},
 		},
 	}
 }
 
-func TestDoBalance(t *testing.T) {
+func TestDoBalanceSingleInsert(t *testing.T) {
 	for _, tuple := range provideTestData() {
 		t.Run(tuple.Description, func(t *testing.T) {
 			r := &TestResult{}

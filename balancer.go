@@ -24,7 +24,20 @@ func CreatePlayer(rank uint8) *Player {
 
 type Team struct {
 	Players *[]Player
-	BasicRank uint8
+}
+
+func (t *Team) getRankRange() (min, max uint8) {
+	min, max = ^uint8(0), uint8(0)
+	for _, p := range *t.Players {
+		if p.Rank < min {
+			min = p.Rank
+		}
+		if p.Rank > max {
+			max = p.Rank
+		}
+	}
+
+	return min, max
 }
 
 type MatchRoster struct {
@@ -34,6 +47,50 @@ type MatchRoster struct {
 	OppositeTeam *Team
 	TeamSize,
 	RankRange uint8
+}
+
+func (r *MatchRoster) getRankRange() (min, max uint8) {
+	min, max = ^uint8(0), uint8(0)
+	aMin, aMax := r.TeamA.getRankRange()
+	bMin, bMax := r.TeamB.getRankRange()
+
+	min = bMin
+	if aMin < bMin {
+		min = aMin
+	}
+
+	max = bMax
+	if aMax > bMax {
+		max = aMax
+	}
+
+	return min, max
+}
+
+func (r *MatchRoster) isFirstInsert() bool {
+	min, max := r.getRankRange()
+
+	return min == ^uint8(0) && max == 0
+}
+
+func (r *MatchRoster) canAddPlayer(rank uint8) bool {
+	if r.isFirstInsert() {
+		return true
+	}
+
+	min, max := r.getRankRange()
+
+	minDoesntFitRange := math.Abs(float64(min)-float64(rank)) > float64(r.RankRange)
+	maxDoesntFitRange := math.Abs(float64(max)-float64(rank)) > float64(r.RankRange)
+	if minDoesntFitRange || maxDoesntFitRange {
+		return false
+	}
+
+	if len(*r.CurrentTeam.Players) == int(r.TeamSize) {
+		return false
+	}
+
+	return true
 }
 
 func CreateEmptyRoster(teamSize, rankRange uint8) *MatchRoster {
@@ -46,8 +103,8 @@ func CreateEmptyRoster(teamSize, rankRange uint8) *MatchRoster {
 	roster.CurrentTeam = roster.TeamA
 	roster.OppositeTeam = roster.TeamB
 	roster.TeamSize = teamSize
-	roster.RankRange = rankRange 
-	
+	roster.RankRange = rankRange
+
 	return roster
 }
 
@@ -61,15 +118,15 @@ type BalancesTeams interface {
 }
 
 type TeamBalancer struct {
-	insertChan chan Player
+	insertChan   chan Player
 	insertedChan chan bool
-	rosterChan chan *MatchRoster
-	Roster *MatchRoster
+	rosterChan   chan *MatchRoster
+	Roster       *MatchRoster
 }
 
 func (tb *TeamBalancer) Init(teamSize, rankRange uint8) {
 	roster := CreateEmptyRoster(teamSize, rankRange)
-	
+
 	tb.insertChan = make(chan Player)
 	tb.insertedChan = make(chan bool)
 	tb.rosterChan = make(chan *MatchRoster)
@@ -83,9 +140,9 @@ func (tb *TeamBalancer) AddPlayer(player Player) (addedToTeam, finishedBalancing
 	tb.insertChan <- player
 
 	select {
-	case inserted := <- tb.insertedChan:
+	case inserted := <-tb.insertedChan:
 		return inserted, false
-	case roster := <- tb.rosterChan:
+	case roster := <-tb.rosterChan:
 		tb.Roster = roster
 		close(tb.insertedChan)
 		close(tb.insertChan)
@@ -114,31 +171,22 @@ func (tb *TeamBalancer) runBalancing() {
 }
 
 func DoBalance(roster *MatchRoster, player Player) (inserted, finished bool) {
+	roster.CurrentTeam, roster.OppositeTeam = roster.TeamA, roster.TeamB
+	if len(*roster.TeamA.Players) > len(*roster.TeamB.Players) {
+		roster.CurrentTeam, roster.OppositeTeam = roster.OppositeTeam, roster.CurrentTeam
+	}
+
 	currentTeam := roster.CurrentTeam
 	oppositeTeam := roster.OppositeTeam
 
-	if len(*currentTeam.Players) == 0 && len(*oppositeTeam.Players) == 0 {
-		currentTeam.BasicRank = player.Rank
-		oppositeTeam.BasicRank = player.Rank
+	inserted = false
+
+	if roster.canAddPlayer(player.Rank) {
+		currentTeam.AddPlayer(&player)
+		inserted = true
 	}
 
-	if len(*currentTeam.Players) == 0 && len(*oppositeTeam.Players) != 0 {
-		if math.Abs(float64(oppositeTeam.BasicRank-player.Rank)) > float64(roster.RankRange) {
-			return false, false
-		}
-	}
+	finished = len(*currentTeam.Players) == int(roster.TeamSize) && len(*oppositeTeam.Players) == int(roster.TeamSize)
 
-	if math.Abs(float64(oppositeTeam.BasicRank-player.Rank)) > float64(roster.RankRange) || math.Abs(float64(currentTeam.BasicRank-player.Rank)) > float64(roster.RankRange) {
-		return false, false
-	}
-
-	currentTeam.AddPlayer(&player)
-
-	if len(*currentTeam.Players) == int(roster.TeamSize) && len(*oppositeTeam.Players) == int(roster.TeamSize) {
-		return false, true
-	}
-
-	roster.CurrentTeam, roster.OppositeTeam = roster.OppositeTeam, roster.CurrentTeam
-
-	return true, false
+	return inserted, finished
 }
